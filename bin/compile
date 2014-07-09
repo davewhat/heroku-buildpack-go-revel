@@ -1,0 +1,100 @@
+#!/bin/bash
+# usage: bin/compile <build-dir> <cache-dir>
+
+set -eo pipefail
+
+mkdir -p "$1" "$2"
+build=$(cd "$1/" && pwd)
+cache=$(cd "$2/" && pwd)
+ver=${GOVERSION:-1.2.1}
+file=${GOFILE:-go$ver.$(uname|tr A-Z a-z)-amd64.tar.gz}
+url=${GOURL:-http://go.googlecode.com/files/$file}
+buildpack=$(dirname $(dirname $0))
+arch=$(uname -m|tr A-Z a-z)
+if test $arch = x86_64
+then arch=amd64
+fi
+plat=$(uname|tr A-Z a-z)-$arch
+
+# Python
+venv=$cache/venv
+mkdir -p $cache/pip
+python=python2.7
+PATH=$buildpack/$plat/bin:$venv/bin:$PATH
+
+virtualenv() {
+    python "$buildpack/vendor/virtualenv-1.7/virtualenv.py" "$@"
+}
+
+name=github.com/davewhat/overshare
+
+if test -e $build/bin && ! test -d $build/bin
+then
+    echo >&2 " !     File bin exists and is not a directory."
+    exit 1
+fi
+
+if test -d $cache/go-$ver/go
+then
+    echo "-----> Using Go $ver"
+else
+    rm -rf $cache/* # be sure not to build up cruft
+    mkdir -p $cache/go-$ver
+    cd $cache/go-$ver
+    echo -n "-----> Installing Go $ver..."
+    curl -sO $url
+    tar zxf $file
+    rm -f $file
+    echo " done"
+fi
+
+cp -R $cache/go-$ver/go $build/.goroot
+
+GOROOT=$build/.goroot export GOROOT
+GOPATH=$build/.go export GOPATH
+PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+
+
+if ! (which hg > /dev/null && which bzr > /dev/null)
+then
+    echo -n "       Installing Virtualenv..."
+    virtualenv --python $python --distribute --never-download --prompt='(venv) ' $venv > /dev/null 2>&1
+    . $venv/bin/activate > /dev/null 2>&1
+    echo " done"
+
+    echo -n "       Installing Mercurial..."
+    pip install mercurial > /dev/null 2>&1
+    echo " done"
+
+    echo -n "       Installing Bazaar..."
+    pip install bzr > /dev/null 2>&1
+    echo " done"
+fi
+
+p=$GOPATH/src/$name
+mkdir -p $p
+cp -R $build/golang/src/$name/* $p
+
+unset GIT_DIR # unset git dir or it will mess with goinstall
+cd $p
+if test -f $build/Godeps
+then
+    echo "-----> Running: godep go get -tags heroku ./..."
+    godep go get -tags heroku ./...
+else
+    echo "-----> Running: go get -tags heroku ./..."
+    go get -tags heroku ./...
+fi
+
+mkdir -p $build/bin
+if test -d $GOPATH/bin 
+then
+    mv $GOPATH/bin/* $build/bin
+fi
+
+rm -rf $build/.heroku
+
+mkdir -p $build/.profile.d
+echo 'PATH=$PATH:$HOME/bin' > $build/.profile.d/go.sh
+
+go get github.com/revel/cmd/revel

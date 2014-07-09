@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# bin/release <build-dir>
+
+name=github.com/davewhat/overshare
+cat <<EOF
+---
+config_vars:
+  PATH: /app/bin:/app/.go/bin:/app/.goroot/bin:/usr/local/bin:/usr/bin:/bin
+  GOROOT: /app/.goroot
+  GOPATH: /app/.go
+default_process_types:
+  web: /app/.go/bin/revel run $name prod \$PORT
+EOF
+
+
